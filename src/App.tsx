@@ -64,6 +64,20 @@ function SwapInterface() {
     calculateReturnAmount();
   }, [library, fromToken, toToken, amount, active]);
 
+  useEffect(() => {
+    const connectWalletOnPageLoad = async () => {
+      if (localStorage?.getItem('isWalletConnected') === 'true') {
+        try {
+          await activate(injected);
+          localStorage.setItem('isWalletConnected', 'true');
+        } catch (error) {
+          console.error('Error on auto-connect:', error);
+        }
+      }
+    };
+    connectWalletOnPageLoad();
+  }, [activate]);
+
   const fetchUserTokens = async () => {
     if (!library || !account) return;
     const balances = await getTokenBalances(library, account);
@@ -73,6 +87,7 @@ function SwapInterface() {
   const connectWallet = async () => {
     try {
       await activate(injected);
+      localStorage.setItem('isWalletConnected', 'true');
     } catch (error) {
       console.error('Error connecting wallet:', error);
     }
@@ -81,6 +96,7 @@ function SwapInterface() {
   const disconnectWallet = () => {
     try {
       deactivate();
+      localStorage.removeItem('isWalletConnected');
     } catch (error) {
       console.error('Error disconnecting wallet:', error);
     }
@@ -154,16 +170,38 @@ function SwapInterface() {
     setIsLoading(false);
   };
 
+  const handleHalfAmount = () => {
+    if (fromToken?.balance) {
+      const halfAmount = fromToken.balance.div(2);
+      setAmount(formatTokenAmount(halfAmount, fromToken.decimals).slice(0, 10));
+    }
+  };
+
+  const handleMaxAmount = () => {
+    if (fromToken?.balance) {
+      setAmount(formatTokenAmount(fromToken.balance, fromToken.decimals).slice(0, 10));
+    }
+  };
+
+  // Helper function to format display amounts
+  const formatDisplayAmount = (amount: string): string => {
+    const [whole, decimal] = amount.split('.');
+    if (!decimal) return amount;
+    return `${whole}.${decimal.slice(0, 10)}`;
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)]">
         <div className="flex items-center space-x-8">
-          <h1 className="text-2xl font-bold">Jupiter</h1>
+          <h1 className="text-2xl font-bold">ASWAP</h1>
           <nav className="flex space-x-6">
-            <button className="text-[var(--text-secondary)] hover:text-white">Swap</button>
+            
+            {/* <button className="text-[var(--text-secondary)] hover:text-white">Swap</button>
             <button className="text-[var(--text-secondary)] hover:text-white">Limit</button>
-            <button className="text-[var(--text-secondary)] hover:text-white">DCA</button>
+            <button className="text-[var(--text-secondary)] hover:text-white">DCA</button> */}
+            
           </nav>
         </div>
         <div className="flex items-center space-x-4">
@@ -180,8 +218,22 @@ function SwapInterface() {
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="swap-card p-4">
-            {/* Settings */}
-            <div className="flex justify-end mb-4">
+            {/* Settings and Amount Controls */}
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleHalfAmount}
+                  className="px-2 py-1 text-sm rounded-lg bg-[var(--button-background)] text-[var(--text-secondary)] hover:text-white"
+                >
+                  HALF
+                </button>
+                <button
+                  onClick={handleMaxAmount}
+                  className="px-2 py-1 text-sm rounded-lg bg-[var(--button-background)] text-[var(--text-secondary)] hover:text-white"
+                >
+                  MAX
+                </button>
+              </div>
               <button 
                 className="settings-button p-2"
                 onClick={() => setIsSettingsOpen(true)}
@@ -198,7 +250,7 @@ function SwapInterface() {
                   <label className="text-sm text-[var(--text-secondary)]">You're Selling</label>
                   {fromToken && fromToken.balance && active && (
                     <div className="text-sm text-[var(--text-secondary)]">
-                      {formatTokenAmount(fromToken.balance, fromToken.decimals)} {fromToken.symbol}
+                      {formatDisplayAmount(formatTokenAmount(fromToken.balance, fromToken.decimals))} {fromToken.symbol}
                     </div>
                   )}
                 </div>
@@ -222,7 +274,7 @@ function SwapInterface() {
                   </button>
                   <input
                     type="text"
-                    value={amount}
+                    value={formatDisplayAmount(amount)}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
                     className="token-amount"
@@ -248,11 +300,13 @@ function SwapInterface() {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm text-[var(--text-secondary)]">You're Buying</label>
+                  {/*
                   {toToken && toToken.balance && active && (
                     <div className="text-sm text-[var(--text-secondary)]">
-                      {formatTokenAmount(toToken.balance, toToken.decimals)} {toToken.symbol}
+                      {formatDisplayAmount(formatTokenAmount(toToken.balance, toToken.decimals))} {toToken.symbol}
                     </div>
                   )}
+                    */}
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
@@ -273,23 +327,14 @@ function SwapInterface() {
                     )}
                   </button>
                   <div className="token-amount text-[var(--text-secondary)]">
-                    {returnAmount}
+                    {formatDisplayAmount(returnAmount)}
                   </div>
                 </div>
               </div>
 
               {/* Price Info */}
-              <div className="flex items-center justify-between text-sm">
-                <div className="flex items-center space-x-2">
-                  <span>1 {fromToken?.symbol || ''} = {/* Add actual rate calculation */}</span>
-                  <span className="text-red-500">-0.35%</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span>1 {toToken?.symbol || ''} = {/* Add actual rate calculation */}</span>
-                  <span className="text-green-500">+0.12%</span>
-                </div>
-              </div>
-
+              
+            
               {/* Swap Button */}
               <button
                 onClick={handleSwap}
@@ -299,6 +344,20 @@ function SwapInterface() {
                 {isLoading ? 'Swapping...' : !amount ? 'Enter an amount' : active ? 'Swap' : 'Connect Wallet'}
               </button>
             </div>
+          </div>
+          
+          {/* Disclaimer */}
+          <div className="mt-4 p-4 rounded-lg bg-yellow-500 bg-opacity-10 border border-yellow-500 text-yellow-500 text-sm">
+            <p className="mb-2 font-semibold">⚠️ Beta Release - Use at Your Own Risk</p>
+            <p>
+              This decentralized exchange is currently in beta. While we strive for security and reliability:
+            </p>
+            <ul className="list-disc list-inside mt-2 space-y-1">
+              <li>All transactions are executed at your own risk</li>
+              <li>Funds may be lost due to smart contract vulnerabilities or user error</li>
+              <li>Test with small amounts first</li>
+              <li>We are not responsible for any losses incurred</li>
+            </ul>
           </div>
         </div>
       </main>
