@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0c1015;
+  --card-background: #151a23;
+  --button-background: #1c2330;
+  --accent-color: #00d1ff;
+  --border-color: #2c3544;
+  --text-primary: #ffffff;
+  --text-secondary: #7c8db5;
+  --swap-button-color: #98C17B;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--background);
+  color: var(--text-primary);
+}
+
+.swap-card {
+  background-color: var(--card-background);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.token-button {
+  background-color: var(--button-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  transition: all 0.2s;
+}
+
+.token-button:hover {
+  background-color: #242b3d;
+}
+
+.amount-input {
+  background-color: var(--button-background);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-primary);
+}
+
+.amount-input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+.swap-button {
+  background-color: var(--swap-button-color);
+  color: #000000;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+  border: none;
+}
+
+.swap-button:hover {
+  opacity: 0.9;
+}
+
+.swap-button:disabled {
+  background-color: var(--button-background);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.settings-button {
+  background-color: var(--button-background);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+}
+
+.settings-button:hover {
+  background-color: #242b3d;
+}
+
+/* New styles for the swap interface */
+.mode-button {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.mode-button.active {
+  background-color: var(--button-background);
+}
+
+.mode-button.inactive {
+  color: var(--accent-color);
+}
+
+.token-amount {
+  font-size: 24px;
+  text-align: right;
+  width: 100%;
+  background: transparent;
+  border: none;
+}
+
+.token-amount:focus {
+  outline: none;
+}
+
+.swap-arrow-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--button-background);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  border: 1px solid var(--border-color);
+}
+
+.swap-arrow-button:hover {
+  background-color: #242b3d;
+  color: var(--text-primary);
+}
+
+.price-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.price-info img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
