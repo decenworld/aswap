@@ -1,91 +1,146 @@
+import { PublicClient } from 'wagmi';
+import { 
+  formatUnits, 
+  parseUnits,
+  type Address,
+  ContractFunctionExecutionError,
+} from 'viem';
+import { TokenInfo, NATIVE_AVAX } from './tokenLists';
 import { ethers } from 'ethers';
-import { TOP_AVALANCHE_TOKENS } from '../constants/tokens';
-
-const ERC20_ABI = [
-  'function balanceOf(address owner) view returns (uint256)',
-  'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)',
-  'function name() view returns (string)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function approve(address spender, uint256 amount) returns (bool)'
-];
 
 export interface TokenBalance {
-  address: string;
-  symbol: string;
-  name: string;
-  balance: ethers.BigNumber;
-  decimals: number;
-  logoURI?: string;
+  token: TokenInfo;
+  balance: string;
 }
 
+const COMMON_TOKENS: Address[] = [
+  '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7', // WAVAX
+  '0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB', // WETH.e
+  '0x50b7545627a5162F82A992c33b87aDc75187B218', // WBTC.e
+  '0xc7198437980c041c805A1EDcbA50c1Ce5db95118', // USDT.e
+  '0xA7D7079b0FEaD91F3e65f86E8915Cb59c1a4C664', // USDC.e
+  '0xd586E7F844cEa2F87f50152665BCbc2C279D8d70', // DAI.e
+];
+
 export const getTokenBalances = async (
-  provider: ethers.providers.Web3Provider,
-  account: string
+  publicClient: PublicClient,
+  address?: string
 ): Promise<TokenBalance[]> => {
+  if (!address || !publicClient) return [];
+  
   const balances: TokenBalance[] = [];
+  const userAddress = address as Address;
 
-  // Get native AVAX balance
-  const avaxBalance = await provider.getBalance(account);
-  balances.push({
-    ...TOP_AVALANCHE_TOKENS[0],
-    balance: avaxBalance
-  });
+  try {
+    // Get native AVAX balance
+    const nativeBalance = await publicClient.request({
+      method: 'eth_getBalance',
+      params: [userAddress, 'latest'],
+    });
+    
+    balances.push({
+      token: NATIVE_AVAX,
+      balance: formatUnits(BigInt(nativeBalance), NATIVE_AVAX.decimals)
+    });
 
-  // Get ERC20 token balances
-  for (const token of TOP_AVALANCHE_TOKENS.slice(1)) {
-    try {
-      const contract = new ethers.Contract(token.address, ERC20_ABI, provider);
-      const balance = await contract.balanceOf(account);
-      
-      if (balance.gt(0)) {
-        balances.push({
-          ...token,
-          balance
-        });
+    // Get token balances
+    for (const tokenAddress of COMMON_TOKENS) {
+      try {
+        const [balanceResult, decimalsResult, symbolResult, nameResult] = await Promise.all([
+          publicClient.request({
+            method: 'eth_call',
+            params: [{
+              to: tokenAddress,
+              data: `0x70a08231000000000000000000000000${userAddress.slice(2)}`, // balanceOf
+            }, 'latest'],
+          }),
+          publicClient.request({
+            method: 'eth_call',
+            params: [{
+              to: tokenAddress,
+              data: '0x313ce567', // decimals
+            }, 'latest'],
+          }),
+          publicClient.request({
+            method: 'eth_call',
+            params: [{
+              to: tokenAddress,
+              data: '0x95d89b41', // symbol
+            }, 'latest'],
+          }),
+          publicClient.request({
+            method: 'eth_call',
+            params: [{
+              to: tokenAddress,
+              data: '0x06fdde03', // name
+            }, 'latest'],
+          }),
+        ]);
+
+        const balance = BigInt(balanceResult);
+        
+        if (balance > BigInt(0)) {
+          const decimals = Number(BigInt(decimalsResult));
+          const symbol = decodeString(symbolResult);
+          const name = decodeString(nameResult);
+
+          balances.push({
+            token: {
+              address: tokenAddress,
+              decimals,
+              name,
+              symbol,
+              logoURI: '', // You can add logo URLs from your token list
+            },
+            balance: formatUnits(balance, decimals)
+          });
+        }
+      } catch (error) {
+        if (error instanceof ContractFunctionExecutionError) {
+          console.error(`Error fetching balance for token ${tokenAddress}:`, error.message);
+        } else {
+          console.error(`Unknown error for token ${tokenAddress}:`, error);
+        }
       }
-    } catch (error) {
-      console.error(`Error fetching balance for ${token.symbol}:`, error);
     }
+  } catch (error) {
+    console.error('Error fetching token balances:', error);
   }
 
   return balances;
 };
 
-export const checkTokenAllowance = async (
-  provider: ethers.providers.Web3Provider,
-  tokenAddress: string,
-  ownerAddress: string,
-  spenderAddress: string
-): Promise<ethers.BigNumber> => {
-  const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-  return contract.allowance(ownerAddress, spenderAddress);
-};
-
-export const approveToken = async (
-  provider: ethers.providers.Web3Provider,
-  tokenAddress: string,
-  spenderAddress: string,
-  amount: ethers.BigNumber
-): Promise<ethers.ContractTransaction> => {
-  const signer = provider.getSigner();
-  const contract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+// Helper function to decode string from contract response
+function decodeString(hexString: string): string {
+  if (hexString === '0x' || hexString.length < 66) return '';
   
+  // Remove '0x' prefix and the first 64 characters (method ID + offset)
+  const hex = hexString.slice(66);
+  
+  // Convert hex to string
+  let str = '';
+  for (let i = 0; i < hex.length; i += 2) {
+    const charCode = parseInt(hex.substr(i, 2), 16);
+    if (charCode === 0) break;
+    str += String.fromCharCode(charCode);
+  }
+  return str;
+}
+
+export const formatTokenAmount = (amount: string, decimals: number): string => {
   try {
-    const tx = await contract.approve(spenderAddress, amount, {
-      gasLimit: 100000 // Add explicit gas limit
-    });
-    return tx;
-  } catch (error: any) {
-    console.error('Approval error:', error);
-    throw new Error(error.message || 'Token approval failed');
+    return ethers.utils.formatUnits(amount, decimals);
+  } catch (error) {
+    console.error('Error formatting token amount:', error);
+    return '0';
   }
 };
 
-export const formatTokenAmount = (amount: ethers.BigNumber, decimals: number): string => {
-  return ethers.utils.formatUnits(amount, decimals);
-};
-
-export const parseTokenAmount = (amount: string, decimals: number): ethers.BigNumber => {
-  return ethers.utils.parseUnits(amount, decimals);
+export const parseTokenAmount = (amount: string, decimals: number): string => {
+  try {
+    return parseUnits(amount, decimals).toString();
+  } catch (error) {
+    console.error('Error parsing token amount:', error);
+    return '0';
+  }
 };
