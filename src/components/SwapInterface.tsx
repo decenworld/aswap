@@ -139,7 +139,7 @@ export function SwapInterface() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="p-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Jupiter DEX</h1>
+        <h1 className="text-2xl font-bold">ASwap</h1>
         <ConnectButton />
       </header>
 
