@@ -8,7 +8,9 @@ import { WagmiConfig, createConfig, configureChains } from 'wagmi';
 import { avalanche } from 'wagmi/chains';
 import { publicProvider } from 'wagmi/providers/public';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ToastContainer } from 'react-toastify';
 import '@rainbow-me/rainbowkit/styles.css';
+import 'react-toastify/dist/ReactToastify.css';
 
 // Import components
 import { SwapInterface } from './components/SwapInterface';
@@ -41,6 +43,7 @@ function App() {
       <RainbowKitProvider chains={chains} theme={darkTheme()}>
         <QueryClientProvider client={queryClient}>
           <SwapInterface />
+          <ToastContainer position="bottom-right" />
         </QueryClientProvider>
       </RainbowKitProvider>
     </WagmiConfig>
