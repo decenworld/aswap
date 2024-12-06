@@ -11,6 +11,7 @@ declare global {
 // Constants
 export const WAVAX = '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7';
 export const NATIVE_AVAX = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+export const FEE_COLLECTOR = '0x7c1Ea8f45B920BF992f03b00711571876925fEEe';
 
 // ERC20 ABI for token decimals
 const ERC20_ABI = [
@@ -27,30 +28,32 @@ const ROUTER_ABI = [
 ];
 
 // Define DEX names type
-export type DexName = 'traderjoe' | 'pangolin';
+export type DexName = 'Trader Joe' | 'Pangolin' | 'GMX';
 
-export const DEX_NAMES: DexName[] = ['traderjoe', 'pangolin'];
+export const DEX_NAMES: DexName[] = ['Trader Joe', 'Pangolin', 'GMX'];
 
 export const DEX_ROUTERS: Record<DexName, { address: string; abi: string[] }> = {
-  'traderjoe': {
+  'Trader Joe': {
     address: '0x60aE616a2155Ee3d9A68541Ba4544862310933d4',
     abi: ROUTER_ABI
   },
-  'pangolin': {
+  'Pangolin': {
     address: '0xE54Ca86531e17Ef3616d22Ca28b0D458b6C89106',
+    abi: ROUTER_ABI
+  },
+  'GMX': {
+    address: '0x5F719c2F1095F7B9fc68a68e35B51194f4b6abe8',
     abi: ROUTER_ABI
   }
 };
 
 export interface Route {
   dex: DexName;
-  routerAddress: string;
   outputAmount: ethers.BigNumber;
+  path: string[];
+  routerAddress: string;
   priceUSD: string;
   priceImpact: string;
-  path: string[];
-  data?: string;
-  value?: string;
 }
 
 // Cache for token decimals
@@ -222,10 +225,14 @@ export const getAllRoutes = async (
   const routes: Route[] = [];
   
   try {
+    // Convert NATIVE_AVAX to WAVAX for price check
+    const fromTokenForQuote = fromToken === NATIVE_AVAX ? WAVAX : fromToken;
+    const toTokenForQuote = toToken === NATIVE_AVAX ? WAVAX : toToken;
+
     // Get quotes from different DEXes
     for (const dexName of DEX_NAMES) {
       try {
-        const quote = await getDexQuote(dexName, fromToken, toToken, amountIn);
+        const quote = await getDexQuote(dexName, fromTokenForQuote, toTokenForQuote, amountIn);
         
         // Skip if no valid quote received
         if (quote.amountOut.eq(0)) {
@@ -233,10 +240,15 @@ export const getAllRoutes = async (
           continue;
         }
 
+        // Calculate fee-adjusted output amount (1% fee)
+        const feeAmount = ethers.BigNumber.from(amountIn).mul(100).div(10000); // 1% fee
+        const swapAmount = ethers.BigNumber.from(amountIn).sub(feeAmount);
+        const adjustedOutputAmount = quote.amountOut.mul(swapAmount).div(ethers.BigNumber.from(amountIn));
+
         const route: Route = {
           dex: dexName,
-          outputAmount: quote.amountOut,
-          path: quote.route,
+          outputAmount: adjustedOutputAmount,
+          path: [fromToken, toToken], // Store original tokens in path
           routerAddress: DEX_ROUTERS[dexName].address,
           priceUSD: quote.usdValue,
           priceImpact: (parseFloat(quote.priceImpact) / 10).toFixed(2)
@@ -259,94 +271,94 @@ export const getAllRoutes = async (
   return routes;
 };
 
-// Add FeeCollector ABI and address
-const FEE_COLLECTOR_ADDRESS = 'YOUR_DEPLOYED_CONTRACT_ADDRESS';
-const FEE_COLLECTOR_ABI = [
-  'function collectFee(address token, uint256 amount) external returns (uint256)',
-];
-
 export const executeSwap = async (
   route: Route,
-  fromTokenAddress: string,
-  toTokenAddress: string,
-  amount: string,
-  slippage: number,
-  options?: { value?: ethers.BigNumber }
+  fromToken: string,
+  toToken: string,
+  amountIn: string,
+  slippage: number = 0.5
 ): Promise<ethers.ContractTransaction> => {
   if (!window.ethereum) {
-    throw new Error('No Web3 provider found');
+    throw new Error('MetaMask is not installed');
   }
 
-  const provider = new ethers.providers.Web3Provider(window.ethereum);
-  const signer = provider.getSigner();
-  const userAddress = await signer.getAddress();
-
-  // Create router contract instance
-  const routerContract = new ethers.Contract(
-    route.routerAddress,
-    [
-      'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
-      'function swapExactAVAXForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)',
-      'function swapExactTokensForAVAX(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)'
-    ],
-    signer
-  );
-
-  const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
-  
-  // Get token decimals
-  const decimals = fromTokenAddress === 'AVAX' ? 18 : 18; // Default to 18 for now, should get from token contract
-  const parsedAmount = ethers.utils.parseUnits(amount, decimals);
-  
-  // Calculate minimum amount out with slippage
-  const minAmountOut = route.outputAmount.mul(100 - Math.floor(slippage * 100)).div(100);
-
-  console.log('Swap parameters:', {
-    parsedAmount: parsedAmount.toString(),
-    minAmountOut: minAmountOut.toString(),
-    path: route.path,
-    deadline,
-    value: options?.value?.toString()
-  });
-
-  let tx: ethers.ContractTransaction;
-
   try {
-    // Execute the swap based on token types
-    if (fromTokenAddress === 'AVAX') {
-      tx = await routerContract.swapExactAVAXForTokens(
-        minAmountOut,
-        route.path,
-        userAddress,
-        deadline,
-        { 
-          ...options,
-          gasLimit: 300000
-        }
+    const provider = new ethers.providers.Web3Provider(window.ethereum);
+    const signer = provider.getSigner();
+    const userAddress = await signer.getAddress();
+
+    // Handle token approvals for ERC20 tokens (not needed for AVAX)
+    if (fromToken !== NATIVE_AVAX) {
+      console.log('Checking token approval...');
+      const tokenContract = new ethers.Contract(
+        fromToken,
+        [
+          'function approve(address spender, uint256 amount) external returns (bool)',
+          'function allowance(address owner, address spender) view returns (uint256)'
+        ],
+        signer
       );
-    } else if (toTokenAddress === 'AVAX') {
-      tx = await routerContract.swapExactTokensForAVAX(
-        parsedAmount,
-        minAmountOut,
-        route.path,
-        userAddress,
-        deadline,
-        { gasLimit: 300000 }
-      );
-    } else {
-      tx = await routerContract.swapExactTokensForTokens(
-        parsedAmount,
-        minAmountOut,
-        route.path,
-        userAddress,
-        deadline,
-        { gasLimit: 300000 }
-      );
+
+      const currentAllowance = await tokenContract.allowance(userAddress, FEE_COLLECTOR);
+      if (currentAllowance.lt(amountIn)) {
+        console.log('Approving token...');
+        const approveTx = await tokenContract.approve(FEE_COLLECTOR, ethers.constants.MaxUint256);
+        console.log('Waiting for approval transaction...');
+        await approveTx.wait();
+        console.log('Token approved');
+      } else {
+        console.log('Token already approved');
+      }
     }
 
+    // Get the FeeCollector contract
+    const feeCollectorContract = new ethers.Contract(
+      FEE_COLLECTOR,
+      [
+        'function swapWithFee(address router, uint256 amountIn, uint256 amountOutMin, address[] calldata path, uint256 deadline) external payable returns (uint[] memory amounts)'
+      ],
+      signer
+    );
+
+    // Calculate minimum amount out with slippage
+    const minAmountOut = route.outputAmount.mul(1000 - Math.floor(slippage * 10)).div(1000);
+    const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
+
+    // Create the correct path for the swap
+    // For router price check, we need WAVAX
+    const routerPath = [
+      fromToken === NATIVE_AVAX ? WAVAX : fromToken,
+      toToken === NATIVE_AVAX ? WAVAX : toToken
+    ];
+
+    // For FeeCollector, we use NATIVE_AVAX
+    const swapPath = [fromToken, toToken];
+
+    console.log('Executing swap with params:', {
+      router: route.routerAddress,
+      fromToken,
+      toToken,
+      amountIn,
+      minAmountOut: minAmountOut.toString(),
+      routerPath,
+      swapPath,
+      deadline
+    });
+
+    // Execute swap through FeeCollector
+    const tx = await feeCollectorContract.swapWithFee(
+      route.routerAddress,
+      amountIn,
+      minAmountOut,
+      swapPath,
+      deadline,
+      fromToken === NATIVE_AVAX ? { value: amountIn, gasLimit: 300000 } : { gasLimit: 300000 }
+    );
+
+    console.log('Swap transaction sent:', tx.hash);
     return tx;
-  } catch (error: any) {
-    console.error('Swap execution error:', error);
-    throw new Error(error.message || 'Swap failed');
+  } catch (error) {
+    console.error('Error executing swap:', error);
+    throw error;
   }
 };
