@@ -30,81 +30,103 @@ export const getTokenBalances = async (
   
   const balances: TokenBalance[] = [];
   const userAddress = address as Address;
+  const maxRetries = 3;
+  let retryCount = 0;
 
-  try {
-    // Get native AVAX balance
-    const nativeBalance = await publicClient.request({
-      method: 'eth_getBalance',
-      params: [userAddress, 'latest'],
-    });
-    
-    balances.push({
-      token: NATIVE_AVAX,
-      balance: formatUnits(BigInt(nativeBalance), NATIVE_AVAX.decimals)
-    });
+  const fetchBalances = async () => {
+    try {
+      // Get native AVAX balance
+      const nativeBalance = await publicClient.request({
+        method: 'eth_getBalance',
+        params: [userAddress, 'latest'],
+      });
+      
+      balances.push({
+        token: NATIVE_AVAX,
+        balance: formatUnits(BigInt(nativeBalance), NATIVE_AVAX.decimals)
+      });
 
-    // Get token balances
-    for (const tokenAddress of COMMON_TOKENS) {
-      try {
-        const [balanceResult, decimalsResult, symbolResult, nameResult] = await Promise.all([
-          publicClient.request({
-            method: 'eth_call',
-            params: [{
-              to: tokenAddress,
-              data: `0x70a08231000000000000000000000000${userAddress.slice(2)}`, // balanceOf
-            }, 'latest'],
-          }),
-          publicClient.request({
-            method: 'eth_call',
-            params: [{
-              to: tokenAddress,
-              data: '0x313ce567', // decimals
-            }, 'latest'],
-          }),
-          publicClient.request({
-            method: 'eth_call',
-            params: [{
-              to: tokenAddress,
-              data: '0x95d89b41', // symbol
-            }, 'latest'],
-          }),
-          publicClient.request({
-            method: 'eth_call',
-            params: [{
-              to: tokenAddress,
-              data: '0x06fdde03', // name
-            }, 'latest'],
-          }),
-        ]);
+      // Get token balances with retry logic for each token
+      for (const tokenAddress of COMMON_TOKENS) {
+        let tokenRetries = 0;
+        while (tokenRetries < maxRetries) {
+          try {
+            const [balanceResult, decimalsResult, symbolResult, nameResult] = await Promise.all([
+              publicClient.request({
+                method: 'eth_call',
+                params: [{
+                  to: tokenAddress,
+                  data: `0x70a08231000000000000000000000000${userAddress.slice(2)}`, // balanceOf
+                }, 'latest'],
+              }),
+              publicClient.request({
+                method: 'eth_call',
+                params: [{
+                  to: tokenAddress,
+                  data: '0x313ce567', // decimals
+                }, 'latest'],
+              }),
+              publicClient.request({
+                method: 'eth_call',
+                params: [{
+                  to: tokenAddress,
+                  data: '0x95d89b41', // symbol
+                }, 'latest'],
+              }),
+              publicClient.request({
+                method: 'eth_call',
+                params: [{
+                  to: tokenAddress,
+                  data: '0x06fdde03', // name
+                }, 'latest'],
+              }),
+            ]);
 
-        const balance = BigInt(balanceResult);
-        
-        if (balance > BigInt(0)) {
-          const decimals = Number(BigInt(decimalsResult));
-          const symbol = decodeString(symbolResult);
-          const name = decodeString(nameResult);
+            const balance = BigInt(balanceResult);
+            const decimals = Number(BigInt(decimalsResult));
+            const symbol = decodeString(symbolResult);
+            const name = decodeString(nameResult);
 
-          balances.push({
-            token: {
-              address: tokenAddress,
-              decimals,
-              name,
-              symbol,
-              logoURI: '', // You can add logo URLs from your token list
-            },
-            balance: formatUnits(balance, decimals)
-          });
-        }
-      } catch (error) {
-        if (error instanceof ContractFunctionExecutionError) {
-          console.error(`Error fetching balance for token ${tokenAddress}:`, error.message);
-        } else {
-          console.error(`Unknown error for token ${tokenAddress}:`, error);
+            balances.push({
+              token: {
+                address: tokenAddress,
+                decimals,
+                name,
+                symbol,
+                logoURI: '', // You can add logo URLs from your token list
+              },
+              balance: formatUnits(balance, decimals)
+            });
+            
+            break; // Success, exit retry loop
+          } catch (error) {
+            tokenRetries++;
+            if (tokenRetries === maxRetries) {
+              console.error(`Failed to fetch balance for token ${tokenAddress} after ${maxRetries} retries:`, error);
+            } else {
+              // Wait before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
         }
       }
+      return true;
+    } catch (error) {
+      console.error('Error in fetchBalances:', error);
+      return false;
     }
-  } catch (error) {
-    console.error('Error fetching token balances:', error);
+  };
+
+  // Main retry loop
+  while (retryCount < maxRetries) {
+    const success = await fetchBalances();
+    if (success) break;
+    
+    retryCount++;
+    if (retryCount < maxRetries) {
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
 
   return balances;

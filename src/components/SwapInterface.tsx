@@ -28,13 +28,54 @@ export function SwapInterface() {
   const publicClient = usePublicClient();
 
   const fetchUserTokens = useCallback(async () => {
+    if (!address || !publicClient || !isConnected) return;
+    
     try {
       const balances = await getTokenBalances(publicClient, address);
       setUserTokens(balances);
+      
+      // Update fromToken and toToken balances if they exist
+      if (fromToken) {
+        const fromTokenBalance = balances.find(b => b.token.address.toLowerCase() === fromToken.address.toLowerCase());
+        if (fromTokenBalance) {
+          setFromToken({ ...fromToken, balance: fromTokenBalance.token.balance });
+        }
+      }
+      
+      if (toToken) {
+        const toTokenBalance = balances.find(b => b.token.address.toLowerCase() === toToken.address.toLowerCase());
+        if (toTokenBalance) {
+          setToToken({ ...toToken, balance: toTokenBalance.token.balance });
+        }
+      }
     } catch (error) {
       console.error('Error fetching token balances:', error);
     }
-  }, [publicClient, address]);
+  }, [publicClient, address, isConnected, fromToken, toToken]);
+
+  // Add effect to refresh balances on connection state change
+  useEffect(() => {
+    if (isConnected) {
+      fetchUserTokens();
+      // Initialize token list
+      initializeTokenList();
+    } else {
+      setUserTokens([]);
+      setFromToken(null);
+      setToToken(null);
+    }
+  }, [isConnected, fetchUserTokens]);
+
+  // Refresh balances periodically when connected
+  useEffect(() => {
+    if (!isConnected) return;
+    
+    const intervalId = setInterval(() => {
+      fetchUserTokens();
+    }, 10000); // Refresh every 10 seconds
+    
+    return () => clearInterval(intervalId);
+  }, [isConnected, fetchUserTokens]);
 
   const refreshPrice = useCallback(async () => {
     if (!fromToken || !toToken || !amount || !isConnected) return;
@@ -57,12 +98,6 @@ export function SwapInterface() {
       setIsLoading(false);
     }
   }, [fromToken, toToken, amount, isConnected]);
-
-  useEffect(() => {
-    if (address) {
-      fetchUserTokens();
-    }
-  }, [address, fetchUserTokens]);
 
   useEffect(() => {
     refreshPrice();
